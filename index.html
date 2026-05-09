@@ -303,7 +303,7 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 <!-- HALL OF FAME (single player) -->
 <div id="screen-hof" class="screen">
   <div class="container" style="padding-top:70px;">
-    <div style="text-align:center;background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.2);border-radius:12px;padding:8px 16px;font-size:.72rem;font-weight:600;color:var(--gold);margin-bottom:20px;letter-spacing:.06em;">🌐 Shared across all devices</div>
+    <div style="text-align:center;background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.2);border-radius:12px;padding:8px 16px;font-size:.72rem;font-weight:600;color:var(--gold);margin-bottom:20px;letter-spacing:.06em;">🏆 Champions saved on this device</div>
     <div class="hof-player-header">
       <span class="hof-player-avatar" id="hof-avatar"></span>
       <h2 class="hof-title"><em id="hof-player-name"></em>'s Champions</h2>
@@ -682,46 +682,26 @@ function updateAnniversaryBadge() {
 // ════════════════════════════════════════════════════
 // HALL OF FAME
 // ════════════════════════════════════════════════════
-// ── SHARED HALL OF FAME (persistent cross-device storage) ──
-async function getHOF(playerId) {
-  try {
-    const result = await window.storage.get('hof_' + playerId, true);
-    return result ? JSON.parse(result.value) : [];
-  } catch(e) {
-    // Fallback to localStorage if storage API unavailable
-    try { return JSON.parse(localStorage.getItem('hof_'+playerId) || '[]'); }
-    catch(e2) { return []; }
-  }
+// ── HALL OF FAME (localStorage — persists per device) ──
+function getHOF(playerId) {
+  try { return JSON.parse(localStorage.getItem('hof_'+playerId) || '[]'); }
+  catch(e) { return []; }
 }
-async function saveToHOF(playerId, ride) {
-  const hof = await getHOF(playerId);
+function saveToHOF(playerId, ride) {
+  const hof = getHOF(playerId);
   hof.unshift({
     name: ride.name, emoji: ride.emoji, park: ride.park,
     parkLabel: ride.parkLabel,
     date: new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),
     memory: ride.memory || null
   });
-  const trimmed = hof.slice(0, 30);
-  try {
-    await window.storage.set('hof_' + playerId, JSON.stringify(trimmed), true);
-  } catch(e) {
-    try { localStorage.setItem('hof_'+playerId, JSON.stringify(trimmed)); } catch(e2){}
-  }
+  try { localStorage.setItem('hof_'+playerId, JSON.stringify(hof.slice(0,30))); } catch(e){}
 }
-async function clearHOF(playerId) {
-  try { await window.storage.delete('hof_' + playerId, true); } catch(e){}
-  try { localStorage.removeItem('hof_'+playerId); } catch(e){}
-}
-async function buildPlayerGrid() {
+function buildPlayerGrid() {
   const grid = document.getElementById('player-grid');
-  grid.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:.85rem;">Loading champions...</div>';
-  
-  // Load all HOFs in parallel
-  const hofs = await Promise.all(PLAYERS.map(p => getHOF(p.id)));
-  
   grid.innerHTML = '';
-  PLAYERS.forEach((p, i) => {
-    const hof = hofs[i];
+  PLAYERS.forEach((p) => {
+    const hof = getHOF(p.id);
     const card = document.createElement('div');
     card.className = 'player-card';
     card.id = 'pcard-'+p.id;
@@ -743,12 +723,10 @@ function selectPlayer(player, card) {
   const btn = document.getElementById('start-game-btn');
   btn.style.opacity = '1'; btn.style.pointerEvents = 'auto';
 }
-async function showHOF(player) {
+function showHOF(player) {
   document.getElementById('hof-avatar').textContent = player.emoji;
   document.getElementById('hof-player-name').textContent = player.name;
-  document.getElementById('hof-content').innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)">Loading...</div>';
-  showScreen('screen-hof');
-  const hof = await getHOF(player.id);
+  const hof = getHOF(player.id);
   const content = document.getElementById('hof-content');
   if (hof.length === 0) {
     content.innerHTML = '<div class="hof-empty">No champions yet...<br>Play to crown your first!</div>';
@@ -768,13 +746,10 @@ async function showHOF(player) {
   }
   showScreen('screen-hof');
 }
-async function showAllHOF() {
+function showAllHOF() {
   const content = document.getElementById('all-hof-content');
-  content.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)">Loading Hall of Fame...</div>';
-  showScreen('screen-hof-all');
-  const hofs = await Promise.all(PLAYERS.map(p => getHOF(p.id)));
-  content.innerHTML = PLAYERS.map((p, i) => {
-    const hof = hofs[i];
+  content.innerHTML = PLAYERS.map((p) => {
+    const hof = getHOF(p.id);
     const chips = hof.length ? hof.slice(0,5).map(c=>`<div class="hof-chip">${c.emoji} ${c.name}<span class="hof-chip-date">${c.date}</span></div>`).join('') : '<div class="hof-no-champs">No champions yet</div>';
     return `<div class="hof-player-section">
       <div class="hof-player-title">${p.emoji} ${p.name} <span style="color:var(--muted);font-family:'DM Sans',sans-serif;font-size:.8rem;font-weight:400">(${hof.length} total)</span></div>
@@ -783,9 +758,9 @@ async function showAllHOF() {
   }).join('');
   showScreen('screen-hof-all');
 }
-async function startGame() {
+function startGame() {
   if (!currentPlayer) return;
-  const hof = await getHOF(currentPlayer.id);
+  const hof = getHOF(currentPlayer.id);
   if (hof.length > 0) {
     // Show their HOF briefly with option to continue
     showHOF(currentPlayer);
@@ -1060,7 +1035,7 @@ function showFact(fact) {
 // ════════════════════════════════════════════════════
 // CHAMPION
 // ════════════════════════════════════════════════════
-async function showChampion(ride) {
+function showChampion(ride) {
   playChampion();
   launchConfetti();
 
@@ -1084,7 +1059,7 @@ async function showChampion(ride) {
     <span class="cert-seal">🏰</span>`;
 
   // Save to Hall of Fame
-  if (currentPlayer) await saveToHOF(currentPlayer.id, ride);
+  if (currentPlayer) saveToHOF(currentPlayer.id, ride);
 
   showScreen('screen-champion');
 }
@@ -1116,10 +1091,9 @@ function showStats() {
 // ════════════════════════════════════════════════════
 async function showFinale() {
   // Save previous letter
-  let prev = null;
-  try { const r = await window.storage.get('love_letter_latest', true); prev = r ? r.value : null; } catch(e) { prev = localStorage.getItem('love_letter_latest'); }
+  const prev = localStorage.getItem('love_letter_latest');
   if (prev) {
-    try { await window.storage.set('love_letter_prev', prev, true); } catch(e) { localStorage.setItem('love_letter_prev', prev); }
+    localStorage.setItem('love_letter_prev', prev);
     document.getElementById('prev-text').textContent = prev || '';
     document.getElementById('prev-toggle').style.display = 'block';
   }
@@ -1158,7 +1132,7 @@ Write ONLY the letter body. No greeting, no sign-off, no quotes around it.`;
     const data = await res.json();
     const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
     document.getElementById('love-letter-text').textContent = text;
-    try { await window.storage.set('love_letter_latest', text, true); } catch(e) { localStorage.setItem('love_letter_latest', text); }
+    localStorage.setItem('love_letter_latest', text);
     launchConfetti();
   } catch(e) {
     document.getElementById('love-letter-text').textContent =
@@ -1225,11 +1199,11 @@ function buildHearts(){
 // ════════════════════════════════════════════════════
 // RESET
 // ════════════════════════════════════════════════════
-async function resetAll(){
+function resetAll(){
   currentPlayer=null; petIdx=0; byeRides=[]; currentRound=[];
   matchIndex=0; roundNum=0; winners=[]; bracketHistory=[]; picking=false;
   factCache.clear(); screenHistory=[];
-  await buildPlayerGrid();
+  buildPlayerGrid();
   showScreen('screen-intro');
 }
 
@@ -1238,7 +1212,7 @@ async function resetAll(){
 // ════════════════════════════════════════════════════
 buildStars();
 buildHearts();
-buildPlayerGrid(); // async, runs in background
+buildPlayerGrid();
 updateAnniversaryBadge();
 
 </script>
