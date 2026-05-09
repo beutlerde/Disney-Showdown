@@ -669,14 +669,17 @@ function showScreen(id, addHistory=true) {
   }
   window.scrollTo({top:0,behavior:'smooth'});
 
-  // Back button visibility
+  // Back button — only on screens where going back makes sense
   const backBtn = document.getElementById('back-btn');
-  const noBack = ['screen-intro','screen-player'];
+  // No back on: intro, player select, active battle, champion, stats, finale
+  // (battle would undo a pick; champion/stats/finale are end-of-game screens)
+  const noBack = ['screen-intro', 'screen-player', 'screen-battle', 'screen-champion', 'screen-stats', 'screen-finale'];
   backBtn.className = noBack.includes(id) ? 'back-btn' : 'back-btn visible';
 
   if (addHistory) screenHistory.push(id);
 }
 function goBack() {
+  // Only go back one step — never further than one screen behind
   if (screenHistory.length > 1) {
     screenHistory.pop();
     const prev = screenHistory[screenHistory.length - 1];
