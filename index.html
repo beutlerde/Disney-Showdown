@@ -281,7 +281,7 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 <!-- INTRO -->
 <div id="screen-intro" class="screen active">
   <div class="container" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:50px 20px;">
-    <span class="castle">🏰</span>
+    <span class="castle" onclick="castleTap()" style="cursor:pointer;user-select:none;" title="">🏰</span>
     <div class="intro-eyebrow">Happy Anniversary <span style="color:var(--gold);margin:0 8px">✦</span> A Love Story</div>
     <h1 class="intro-title"><span class="gold">Our Disney</span><br><em>Showdown</em></h1>
     <p class="intro-tagline">Every magical moment, every laugh, every scream — let's relive them.</p>
@@ -388,6 +388,13 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
       </div>
     </div>
     <p class="tap-cue">👆 Tap your favorite to advance it!</p>
+    <div class="undo-wrap">
+      <button class="undo-btn" id="undo-btn" onclick="undoLastPick()">↩ Undo last pick</button>
+    </div>
+    <div class="battle-extras">
+      <button class="battle-extra-btn" onclick="openBracket()">🌳 Bracket</button>
+    </div>
+    <div id="history"></div>
   </div>
 </div>
 
@@ -414,7 +421,10 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
     </div>
     <p class="champ-desc" id="champ-desc"></p>
     <div class="certificate" id="certificate"></div>
-    <button class="btn-rose" style="margin-top:16px;" onclick="showStats()">📊 See the Stats</button>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
+      <button class="btn-rose" onclick="showStats()">📊 See the Stats</button>
+      <button onclick="openCertificate()" style="background:linear-gradient(135deg,var(--gold),var(--gold2));color:var(--ink);border:none;padding:14px 28px;font-family:'Fredoka One',cursive;font-size:1.1rem;border-radius:50px;cursor:pointer;box-shadow:0 8px 30px rgba(255,215,0,.4);">🖼️ Save Certificate</button>
+    </div>
   </div>
 </div>
 
@@ -625,6 +635,19 @@ let factCache = new Map();
 let audioCtx = null;
 let gameStats = { matches:0, memWins:[], startTime:null, park:{ dl:0, dca:0 } };
 let screenHistory = [];
+
+// V3 state
+let matchHistory = [];       // for undo
+let predictions = [];        // [{rideA,rideB,predicted,actual,correct}]
+let matchTimes = [];         // [{rideA,rideB,winner,loser,time,roundNum}]
+let matchStartTime = 0;
+let rematches = 0;
+const MAX_REMATCHES = 3;
+let currentPrediction = null;
+let castleTaps = 0, castleTapTimer = null;
+let champRide = null;        // saved for certificate
+let rematchCallback = null;
+let rematchTimer = null;
 
 // ════════════════════════════════════════════════════
 // SOUND SYSTEM
@@ -918,9 +941,15 @@ async function loadMatch() {
   setCard('a', rA); setCard('b', rB);
   document.getElementById('card-a').className = 'battle-card';
   document.getElementById('card-b').className = 'battle-card';
-  picking = false;
+  picking = true; // disabled until prediction made
+  renderHistory();
+  updateUndoBtn();
+  updateBracketData(rA, rB);
 
-  // AI Fact — shows instantly, upgrades with AI if available
+  // Show prediction overlay before battle
+  showPredictionOverlay(rA, rB);
+
+  // Load fact in background
   document.getElementById('fact-icon').textContent = '✨';
   document.getElementById('fact-text').innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
   generateAndShowFact(rA, rB);
@@ -941,10 +970,39 @@ function pickWinner(side) {
   picking = true;
   playSelect();
 
+  const rA = currentRound[matchIndex];
+  const rB = currentRound[matchIndex + 1];
   const winner = currentRound[matchIndex + side];
+  const loser  = currentRound[matchIndex + (side === 0 ? 1 : 0)];
+
+  // Record hesitation time
+  const decisionTime = Date.now() - matchStartTime;
+  matchTimes.push({ rideA: rA, rideB: rB, winner, loser, time: decisionTime, roundNum });
+
+  // Record prediction result
+  if (currentPrediction !== null) {
+    const correct = currentPrediction === side;
+    predictions.push({ rideA: rA, rideB: rB, predictedSide: currentPrediction, actualSide: side, correct });
+    showPredictionResult(correct, correct ? winner : loser);
+    currentPrediction = null;
+  }
+
+  // Save match to history for undo (before mutating state)
+  matchHistory.push({
+    rideA: rA, rideB: rB,
+    winnersSnap: [...winners],
+    matchIndex, roundNum,
+    currentRoundSnap: [...currentRound],
+    byeRidesSnap: [...byeRides],
+    memWinsSnap: [...gameStats.memWins],
+    matchesSnap: gameStats.matches,
+    parkSnap: { ...gameStats.park },
+    matchTimesSnap: [...matchTimes],
+    predictionsSnap: [...predictions],
+  });
+
   const winCard = document.getElementById(side===0?'card-a':'card-b');
   const loseCard = document.getElementById(side===0?'card-b':'card-a');
-
   winCard.classList.add('winner');
   loseCard.classList.add('loser');
 
@@ -957,18 +1015,25 @@ function pickWinner(side) {
   matchIndex += 2;
 
   const hasMemory = !!winner.memory;
+  // Add this matchup to bracket history display
+  recordBracketMatchup(rA, rB, winner, loser);
 
-  setTimeout(() => {
+  const proceed = () => {
     if (hasMemory) {
       playFlip();
-      showMemoryReveal(winner, () => {
-        setTimeout(() => loadMatch(), 200);
-      });
+      showMemoryReveal(winner, () => setTimeout(loadMatch, 200));
     } else {
       playWin();
-      loadMatch();
+      setTimeout(loadMatch, 900);
     }
-  }, hasMemory ? 700 : 900);
+  };
+
+  // Offer rematch after a short delay
+  if (rematches < MAX_REMATCHES) {
+    setTimeout(() => showRematchOverlay(winner, loser, proceed), 700);
+  } else {
+    setTimeout(proceed, hasMemory ? 700 : 0);
+  }
 }
 
 // ════════════════════════════════════════════════════
@@ -1206,6 +1271,7 @@ function showFact(fact) {
 // CHAMPION
 // ════════════════════════════════════════════════════
 function showChampion(ride) {
+  champRide = ride;
   playChampion();
   launchConfetti();
 
@@ -1247,6 +1313,46 @@ function showStats() {
     <div class="stat-card"><div class="stat-number">${duration || 1}</div><div class="stat-label">Minutes of Fun</div></div>
     <div class="stat-card"><div class="stat-number">${gameStats.memWins.length}</div><div class="stat-label">Memory Rides Won</div></div>
     <div class="stat-card"><div class="stat-number" style="font-size:1.4rem">${favPark}</div><div class="stat-label">Your Winning Park</div></div>`;
+
+  // Prediction compatibility score
+  const statsContent = document.getElementById('stats-grid').parentElement;
+  // Remove old compat/dramatic cards
+  document.querySelectorAll('.compat-card,.dramatic-card').forEach(el => el.remove());
+
+  if (predictions.length > 0) {
+    const correct = predictions.filter(p => p.correct).length;
+    const pct = Math.round((correct / predictions.length) * 100);
+    const msgs = [
+      [90, "Mind reader! You know her better than she knows herself. 💕"],
+      [70, "You know her so well — this is what years of love look like."],
+      [50, "50/50 — either you know her perfectly or she surprises you every time!"],
+      [30, "She keeps you guessing — that's what makes her magic. ✨"],
+      [0,  "She is completely unpredictable and you love her for it. 😄"]
+    ];
+    const msg = msgs.find(([threshold]) => pct >= threshold)[1];
+    const compatEl = document.createElement('div');
+    compatEl.className = 'compat-card';
+    compatEl.innerHTML = `
+      <div class="compat-label">💕 Your Compatibility Score</div>
+      <div class="compat-score">${pct}%</div>
+      <div class="compat-msg">${correct} of ${predictions.length} correct — ${msg}</div>`;
+    document.getElementById('stats-grid').after(compatEl);
+  }
+
+  // Most dramatic battle (longest hesitation)
+  if (matchTimes.length > 0) {
+    const dramatic = matchTimes.reduce((a,b) => a.time > b.time ? a : b);
+    const secs = (dramatic.time / 1000).toFixed(1);
+    const dramaEl = document.createElement('div');
+    dramaEl.className = 'dramatic-card';
+    dramaEl.innerHTML = `
+      <div class="dramatic-label">⏱️ Most Dramatic Battle</div>
+      <div class="dramatic-matchup">${dramatic.rideA.emoji} ${dramatic.rideA.name} vs ${dramatic.rideB.emoji} ${dramatic.rideB.name}</div>
+      <div class="dramatic-time">You thought about it for <strong>${secs} seconds</strong> before picking ${dramatic.winner.emoji} ${dramatic.winner.name}</div>`;
+    const compatCard = document.querySelector('.compat-card');
+    if (compatCard) compatCard.after(dramaEl);
+    else document.getElementById('stats-grid').after(dramaEl);
+  }
 
   const mw = document.getElementById('memory-wins');
   mw.innerHTML = gameStats.memWins.length
@@ -1373,6 +1479,10 @@ function resetAll(){
   currentPlayer=null; petIdx=0; byeRides=[]; currentRound=[];
   matchIndex=0; roundNum=0; winners=[]; bracketHistory=[]; picking=false;
   factCache.clear(); screenHistory=[];
+  // V3 reset
+  matchHistory=[]; predictions=[]; matchTimes=[]; rematches=0;
+  currentPrediction=null; bracketMatchups=[]; bracketPending=null; champRide=null;
+  matchStartTime=0;
   buildPlayerGrid();
   showScreen('screen-intro');
 }
@@ -1381,6 +1491,7 @@ function resetAll(){
 // INIT
 // ════════════════════════════════════════════════════
 try {
+  loadCustomMemories(); // load admin-saved memories before anything else
   buildStars();
   buildHearts();
   buildPlayerGrid();
@@ -1445,6 +1556,114 @@ if(_isIOS&&!_isStandalone&&!sessionStorage.getItem('ios-tip')){
   },2500);
 }
 
+
+// ════════════════════════════════════════════════════
+// ADMIN SCREEN FUNCTIONS
+// ════════════════════════════════════════════════════
+function openAdmin() {
+  buildAdminList('');
+  showScreen('screen-admin');
+}
+
+function buildAdminList(filter) {
+  var list = document.getElementById('admin-list');
+  if (!list) return;
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem('custom_memories') || '{}'); } catch(e){}
+  var rides = filter ? RIDES.filter(function(r){ return r.name.toLowerCase().indexOf(filter.toLowerCase()) >= 0; }) : RIDES;
+  var html = '';
+  rides.forEach(function(r) {
+    var current = saved[r.name] !== undefined ? saved[r.name] : (r.memory || '');
+    var parkStyle = r.park === 'dl' ? 'background:rgba(110,198,255,.2);color:#6EC6FF;' : 'background:rgba(255,107,157,.2);color:#FF6B9D;';
+    var safeId = 'admin_' + r.name.replace(/[^a-zA-Z0-9]/g, '_');
+    html += '<div class="admin-ride-item"><div class="admin-ride-header"><span class="admin-ride-emoji">' + r.emoji + '</span><div class="admin-ride-name">' + r.name + '</div><span class="admin-park-badge" style="' + parkStyle + '">' + r.parkLabel + '</span></div><textarea class="admin-textarea" id="' + safeId + '" placeholder="Add a personal memory...">' + current + '</textarea></div>';
+  });
+  list.innerHTML = html;
+}
+
+function filterAdminRides(val) { buildAdminList(val); }
+
 </script>
+
+<!-- ── PREDICTION OVERLAY ── -->
+<div id="prediction-overlay">
+  <p class="pred-title">🔮 Before she sees this…<br><em>Who would she pick?</em></p>
+  <p class="pred-sub">Secretly predict — she won't know you guessed 😏</p>
+  <div class="pred-cards">
+    <div class="pred-card" id="pred-card-a" onclick="makePrediction(0)">
+      <span class="pred-emoji" id="pred-em-a"></span>
+      <div class="pred-name" id="pred-name-a"></div>
+      <div id="pred-badge-a"></div>
+    </div>
+    <div class="pred-card" id="pred-card-b" onclick="makePrediction(1)">
+      <span class="pred-emoji" id="pred-em-b"></span>
+      <div class="pred-name" id="pred-name-b"></div>
+      <div id="pred-badge-b"></div>
+    </div>
+  </div>
+  <p class="pred-hint">Tap your prediction — then the real battle begins</p>
+</div>
+
+<!-- Prediction result flash -->
+<div id="pred-result"></div>
+
+<!-- ── REMATCH OVERLAY ── -->
+<div id="rematch-overlay">
+  <div class="rematch-title">🥊 THE CROWD DEMANDS<br>A REMATCH!</div>
+  <div class="rematch-sub" id="rematch-sub"></div>
+  <div class="rematch-btns">
+    <button class="rematch-yes" onclick="doRematch()">🥊 REMATCH!</button>
+    <button class="rematch-no" onclick="declineRematch()">Let it stand ✓</button>
+  </div>
+  <div class="rematch-count" id="rematch-count"></div>
+  <div class="rematch-countdown" id="rematch-cd"></div>
+</div>
+
+<!-- ── ADMIN SCREEN ── -->
+<div id="screen-admin" class="screen" style="display:none">
+  <div class="container">
+    <div class="admin-header">
+      <h2 class="admin-title">🔒 <em>Secret Admin</em></h2>
+      <p class="admin-sub">Edit ride memories before the tournament — she'll never know you prepared!</p>
+    </div>
+    <input class="admin-search" id="admin-search" placeholder="🔍 Search rides..." oninput="filterAdminRides(this.value)">
+    <div class="admin-list" id="admin-list"></div>
+    <button class="admin-save" onclick="saveAdminMemories()">💾 Save All Memories</button>
+    <div class="admin-saved-toast" id="admin-toast">✅ Memories saved!</div>
+  </div>
+</div>
+
+<!-- ── BRACKET MODAL ── -->
+<div id="bracket-modal">
+  <button class="bracket-close" onclick="closeBracket()">✕</button>
+  <div class="bracket-modal-inner">
+    <h2 class="bracket-modal-title">🌳 <em>Tournament Bracket</em></h2>
+    <p class="bracket-modal-sub" id="bracket-sub">The path to the champion</p>
+    <div class="bracket-rounds" id="bracket-rounds"></div>
+  </div>
+</div>
+
+<!-- ── CERTIFICATE MODAL ── -->
+<div id="certificate-modal">
+  <div class="cert-modal-inner">
+    <div class="cert-modal-top">✦ Official Championship Certificate ✦</div>
+    <div class="cert-modal-stars">★ ★ ★</div>
+    <div class="cert-modal-img" id="cert-modal-frame">
+      <img id="cert-modal-img" alt="">
+      <span id="cert-modal-em"></span>
+    </div>
+    <div class="cert-modal-name" id="cert-modal-name"></div>
+    <div class="cert-modal-box">
+      <div class="cert-modal-text" id="cert-modal-text"></div>
+      <span class="cert-modal-memory" id="cert-modal-memory"></span>
+      <div class="cert-modal-date" id="cert-modal-date"></div>
+    </div>
+    <div class="cert-modal-seal">🏰</div>
+    <p class="cert-modal-hint">📱 Screenshot this page to save or print</p>
+    <button class="cert-share-btn" onclick="shareCertificate()">📤 Share Champion</button>
+    <button class="cert-close-btn" onclick="closeCertificate()">Close</button>
+  </div>
+</div>
+
 </body>
 </html>
