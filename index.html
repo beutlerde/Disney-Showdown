@@ -469,6 +469,41 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 <div class="confetti-stage" id="confetti"></div>
 
 <script>
+
+// ════════════════════════════════
+// NUCLEAR INIT — runs immediately
+// Hides all screens except intro
+// regardless of CSS loading state
+// ════════════════════════════════
+(function() {
+  function hideAll() {
+    // Hide all screens except active
+    var screens = document.querySelectorAll('.screen');
+    screens.forEach(function(s) {
+      if (!s.classList.contains('active')) {
+        s.style.display = 'none';
+      }
+    });
+    // Hide all overlays
+    ['prediction-overlay','rematch-overlay','bracket-modal',
+     'certificate-modal','memory-overlay'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    // Hide back button
+    var bb = document.getElementById('back-btn');
+    if (bb) bb.style.display = 'none';
+  }
+
+  // Run immediately
+  hideAll();
+
+  // Run again after DOM ready (belt + suspenders)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', hideAll);
+  }
+})();
+
 const RIDES = [
   { name:"Space Mountain", park:"dl", parkLabel:"Disneyland", emoji:"🌌", color:"#0d47a1",
     memory:"The first roller coaster I tricked you into riding. I'll never forget the look on your face when the lights went out.",
@@ -688,7 +723,9 @@ function showScreen(id, addHistory=true) {
   const el = document.getElementById(id);
   if (el) {
     el.classList.add('active');
-    el.style.display = '';  // let CSS take over
+    // Use flex for screens that need it, block for others
+    const flexScreens = ['screen-intro','screen-player','screen-finale'];
+    el.style.display = flexScreens.includes(id) ? 'flex' : 'block';
   }
   window.scrollTo({top:0,behavior:'smooth'});
 
@@ -697,7 +734,9 @@ function showScreen(id, addHistory=true) {
   // No back on: intro, player select, active battle, champion, stats, finale
   // (battle would undo a pick; champion/stats/finale are end-of-game screens)
   const noBack = ['screen-intro', 'screen-player', 'screen-battle', 'screen-champion', 'screen-stats', 'screen-finale'];
-  backBtn.className = noBack.includes(id) ? 'back-btn' : 'back-btn visible';
+  const showBack = !noBack.includes(id);
+  backBtn.className = showBack ? 'back-btn visible' : 'back-btn';
+  backBtn.style.display = showBack ? 'flex' : 'none';
 
   if (addHistory) screenHistory.push(id);
 }
@@ -1050,10 +1089,10 @@ function showMemoryReveal(ride, onDone) {
   document.getElementById('mem-text').textContent = '"' + ride.memory + '"';
 
   const overlay = document.getElementById('memory-overlay');
-  overlay.classList.add('visible');
+  overlay.style.display='flex'; overlay.classList.add('visible');
 
   setTimeout(() => {
-    overlay.classList.remove('visible');
+    overlay.style.display='none'; overlay.classList.remove('visible');
     if (onDone) setTimeout(onDone, 400);
   }, 3000);
 }
@@ -1583,10 +1622,310 @@ function buildAdminList(filter) {
 
 function filterAdminRides(val) { buildAdminList(val); }
 
+
+// ════════════════════════════════════════════════════════════════
+// V3 FEATURE FUNCTIONS
+// ════════════════════════════════════════════════════════════════
+
+// ── UNDO ──────────────────────────────────────────────────────
+function undoLastPick() {
+  if (!matchHistory || matchHistory.length === 0) return;
+  var prev = matchHistory.pop();
+  winners      = prev.winnersSnap;
+  matchIndex   = prev.matchIndex;
+  roundNum     = prev.roundNum;
+  currentRound = prev.currentRoundSnap;
+  byeRides     = prev.byeRidesSnap;
+  matchTimes   = prev.matchTimesSnap   || matchTimes.slice(0,-1);
+  predictions  = prev.predictionsSnap  || predictions.slice(0,-1);
+  gameStats.memWins  = prev.memWinsSnap  || gameStats.memWins;
+  gameStats.matches  = prev.matchesSnap  || Math.max(0, gameStats.matches - 1);
+  gameStats.park     = prev.parkSnap     || gameStats.park;
+  if (bracketMatchups && bracketMatchups.length) bracketMatchups.pop();
+  if (rematchTimer) clearInterval(rematchTimer);
+  var ro = document.getElementById('rematch-overlay');
+  if (ro) { ro.style.display = 'none'; ro.classList.remove('visible'); }
+  picking = false;
+  playSelect();
+  loadMatch();
+  updateUndoBtn();
+}
+
+function updateUndoBtn() {
+  var btn = document.getElementById('undo-btn');
+  if (!btn) return;
+  var show = matchHistory && matchHistory.length > 0;
+  btn.className = show ? 'undo-btn visible' : 'undo-btn';
+  btn.style.display = show ? 'inline-flex' : 'none';
+}
+
+// ── PREDICTION ────────────────────────────────────────────────
+function showPredictionOverlay(rA, rB) {
+  var po = document.getElementById('prediction-overlay');
+  if (!po) return;
+  var ea = document.getElementById('pred-em-a');
+  var na = document.getElementById('pred-name-a');
+  var ba = document.getElementById('pred-badge-a');
+  var eb = document.getElementById('pred-em-b');
+  var nb = document.getElementById('pred-name-b');
+  var bb2 = document.getElementById('pred-badge-b');
+  if (ea) ea.textContent = rA.emoji;
+  if (na) na.textContent = rA.name;
+  if (ba) ba.innerHTML = '<span class="pred-badge-sm ' + rA.park + '" style="' + (rA.park==='dl'?'background:rgba(110,198,255,.2);color:#6EC6FF;':'background:rgba(255,107,157,.2);color:#FF6B9D;') + '">' + rA.parkLabel + '</span>';
+  if (eb) eb.textContent = rB.emoji;
+  if (nb) nb.textContent = rB.name;
+  if (bb2) bb2.innerHTML = '<span class="pred-badge-sm ' + rB.park + '" style="' + (rB.park==='dl'?'background:rgba(110,198,255,.2);color:#6EC6FF;':'background:rgba(255,107,157,.2);color:#FF6B9D;') + '">' + rB.parkLabel + '</span>';
+  var ca = document.getElementById('pred-card-a');
+  var cb = document.getElementById('pred-card-b');
+  if (ca) ca.classList.remove('selected');
+  if (cb) cb.classList.remove('selected');
+  po.style.display = 'flex';
+  po.classList.add('visible');
+}
+
+function makePrediction(side) {
+  currentPrediction = side;
+  var card = document.getElementById(side === 0 ? 'pred-card-a' : 'pred-card-b');
+  if (card) card.classList.add('selected');
+  setTimeout(function() {
+    var po = document.getElementById('prediction-overlay');
+    if (po) { po.style.display = 'none'; po.classList.remove('visible'); }
+    picking = false;
+    matchStartTime = Date.now();
+  }, 400);
+}
+
+function showPredictionResult(correct, ride) {
+  var el = document.getElementById('pred-result');
+  if (!el) return;
+  el.textContent = correct ? ('Correct! She picked ' + ride.name + '!') : ('Nope! She picked ' + ride.name);
+  el.className = (correct ? 'correct' : 'wrong') + ' show';
+  el.style.display = 'block';
+  setTimeout(function() {
+    el.classList.remove('show');
+    setTimeout(function() { el.style.display = 'none'; }, 300);
+  }, 2500);
+}
+
+// ── REMATCH ───────────────────────────────────────────────────
+var rematchProceedFn = null;
+
+function showRematchOverlay(winner, loser, onProceed) {
+  rematchProceedFn = onProceed;
+  var remaining = MAX_REMATCHES - rematches;
+  var sub = document.getElementById('rematch-sub');
+  var cnt = document.getElementById('rematch-count');
+  var cd  = document.getElementById('rematch-cd');
+  if (sub) sub.textContent = winner.emoji + ' ' + winner.name + ' just defeated ' + loser.emoji + ' ' + loser.name + '!';
+  if (cnt) cnt.textContent = remaining + ' rematch' + (remaining !== 1 ? 'es' : '') + ' remaining';
+  var secs = 5;
+  if (cd) cd.textContent = 'Auto-continuing in ' + secs + 's...';
+  var ro = document.getElementById('rematch-overlay');
+  if (ro) { ro.style.display = 'flex'; ro.classList.add('visible'); }
+  rematchTimer = setInterval(function() {
+    secs--;
+    if (cd) cd.textContent = secs > 0 ? 'Auto-continuing in ' + secs + 's...' : '';
+    if (secs <= 0) declineRematch();
+  }, 1000);
+}
+
+function declineRematch() {
+  if (rematchTimer) { clearInterval(rematchTimer); rematchTimer = null; }
+  var ro = document.getElementById('rematch-overlay');
+  if (ro) { ro.style.display = 'none'; ro.classList.remove('visible'); }
+  if (rematchProceedFn) { rematchProceedFn(); rematchProceedFn = null; }
+}
+
+function doRematch() {
+  if (rematchTimer) { clearInterval(rematchTimer); rematchTimer = null; }
+  rematches++;
+  var ro = document.getElementById('rematch-overlay');
+  if (ro) { ro.style.display = 'none'; ro.classList.remove('visible'); }
+  var prev = matchHistory.pop();
+  if (prev) {
+    winners      = prev.winnersSnap;
+    matchIndex   = prev.matchIndex;
+    roundNum     = prev.roundNum;
+    currentRound = prev.currentRoundSnap;
+    byeRides     = prev.byeRidesSnap;
+    matchTimes   = prev.matchTimesSnap || matchTimes;
+    predictions  = prev.predictionsSnap || predictions;
+    gameStats.memWins = prev.memWinsSnap || gameStats.memWins;
+    gameStats.matches = prev.matchesSnap || gameStats.matches;
+    gameStats.park    = prev.parkSnap    || gameStats.park;
+    if (bracketMatchups && bracketMatchups.length) bracketMatchups.pop();
+  }
+  rematchProceedFn = null;
+  picking = false;
+  playWin();
+  loadMatch();
+  updateUndoBtn();
+}
+
+// ── BRACKET ───────────────────────────────────────────────────
+var bracketMatchups = [];
+var bracketPending  = null;
+
+function updateBracketData(rA, rB) {
+  bracketPending = { rideA: rA, rideB: rB };
+}
+
+function recordBracketMatchup(rA, rB, winner, loser) {
+  bracketMatchups.push({ rideA: rA, rideB: rB, winner: winner, loser: loser, round: getRoundName(currentRound.length) });
+  bracketPending = null;
+}
+
+function openBracket() {
+  var rounds = {};
+  bracketMatchups.forEach(function(m) {
+    if (!rounds[m.round]) rounds[m.round] = [];
+    rounds[m.round].push(m);
+  });
+  var container = document.getElementById('bracket-rounds');
+  if (!container) return;
+  if (Object.keys(rounds).length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-style:italic;">No matches played yet!</div>';
+  } else {
+    var html = '';
+    Object.keys(rounds).forEach(function(round) {
+      var matches = rounds[round];
+      html += '<div class="bracket-round-block"><div class="bracket-round-label">' + round + '</div><div class="bracket-matchups">';
+      matches.forEach(function(m) {
+        html += '<div class="bracket-matchup"><span class="w">' + m.winner.emoji + ' ' + m.winner.name + '</span><span class="vs">def.</span><span class="l">' + m.loser.emoji + ' ' + m.loser.name + '</span></div>';
+      });
+      html += '</div></div>';
+    });
+    container.innerHTML = html;
+  }
+  var total = bracketMatchups.length;
+  var sub = document.getElementById('bracket-sub');
+  if (sub) sub.textContent = total + ' match' + (total !== 1 ? 'es' : '') + ' completed';
+  var bm = document.getElementById('bracket-modal');
+  if (bm) { bm.style.display = 'block'; bm.classList.add('visible'); }
+}
+
+function closeBracket() {
+  var bm = document.getElementById('bracket-modal');
+  if (bm) { bm.style.display = 'none'; bm.classList.remove('visible'); }
+}
+
+// ── CERTIFICATE ───────────────────────────────────────────────
+function openCertificate() {
+  if (!champRide) return;
+  var ride   = champRide;
+  var player = currentPlayer || PLAYERS[0];
+  var pet    = PET_NAMES[(petIdx - 1 + PET_NAMES.length) % PET_NAMES.length];
+  var date   = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  var emEl = document.getElementById('cert-modal-em');
+  var nmEl = document.getElementById('cert-modal-name');
+  var frEl = document.getElementById('cert-modal-frame');
+  var txEl = document.getElementById('cert-modal-text');
+  var myEl = document.getElementById('cert-modal-memory');
+  var dtEl = document.getElementById('cert-modal-date');
+  var imgEl= document.getElementById('cert-modal-img');
+  if (emEl) emEl.textContent = ride.emoji;
+  if (nmEl) nmEl.textContent = ride.name;
+  if (frEl) frEl.style.background = 'linear-gradient(135deg,' + ride.color + 'ee,' + ride.color + '77)';
+  if (txEl) txEl.innerHTML = 'Be it known throughout both kingdoms,<br>that on this magical day,<br><strong>' + pet + '</strong> crowned <strong>' + ride.name + '</strong><br>as the Ultimate Disney Champion.';
+  if (myEl) myEl.textContent = ride.memory ? '"' + ride.memory + '"' : '';
+  if (dtEl) dtEl.textContent = date;
+  if (imgEl) { imgEl.src = ''; loadImg(imgEl, ride.imgs); }
+  var cm = document.getElementById('certificate-modal');
+  if (cm) { cm.style.display = 'block'; cm.classList.add('visible'); }
+}
+
+function closeCertificate() {
+  var cm = document.getElementById('certificate-modal');
+  if (cm) { cm.style.display = 'none'; cm.classList.remove('visible'); }
+}
+
+async function shareCertificate() {
+  if (!champRide) return;
+  var pet  = PET_NAMES[(petIdx - 1 + PET_NAMES.length) % PET_NAMES.length];
+  var shareText = '👑 ' + champRide.emoji + ' ' + champRide.name + ' was crowned the Ultimate Disney Champion by ' + pet + '! 🏰✨';
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'Disney Showdown Champion! 🏰', text: shareText });
+    } else {
+      await navigator.clipboard.writeText(shareText);
+      alert('Copied to clipboard! Paste it anywhere to share.');
+    }
+  } catch(e) {}
+}
+
+// ── ADMIN ─────────────────────────────────────────────────────
+function castleTap() {
+  castleTaps = (castleTaps || 0) + 1;
+  if (castleTapTimer) clearTimeout(castleTapTimer);
+  castleTapTimer = setTimeout(function() { castleTaps = 0; }, 2000);
+  if (castleTaps >= 5) {
+    castleTaps = 0;
+    openAdmin();
+  }
+}
+
+function openAdmin() {
+  buildAdminList('');
+  showScreen('screen-admin');
+}
+
+function buildAdminList(filter) {
+  var list = document.getElementById('admin-list');
+  if (!list) return;
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem('custom_memories') || '{}'); } catch(e) {}
+  var rides = filter
+    ? RIDES.filter(function(r) { return r.name.toLowerCase().indexOf(filter.toLowerCase()) >= 0; })
+    : RIDES;
+  var html = '';
+  rides.forEach(function(r) {
+    var current = saved[r.name] !== undefined ? saved[r.name] : (r.memory || '');
+    var pStyle = r.park === 'dl'
+      ? 'background:rgba(110,198,255,.2);color:#6EC6FF;'
+      : 'background:rgba(255,107,157,.2);color:#FF6B9D;';
+    var sid = 'admin_' + r.name.replace(/[^a-zA-Z0-9]/g, '_');
+    html += '<div class="admin-ride-item">'
+          + '<div class="admin-ride-header">'
+          + '<span class="admin-ride-emoji">' + r.emoji + '</span>'
+          + '<div class="admin-ride-name">' + r.name + '</div>'
+          + '<span class="admin-park-badge" style="' + pStyle + '">' + r.parkLabel + '</span>'
+          + '</div>'
+          + '<textarea class="admin-textarea" id="' + sid + '" placeholder="Add a personal memory...">' + current + '</textarea>'
+          + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function filterAdminRides(val) { buildAdminList(val); }
+
+function saveAdminMemories() {
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem('custom_memories') || '{}'); } catch(e) {}
+  RIDES.forEach(function(r) {
+    var sid = 'admin_' + r.name.replace(/[^a-zA-Z0-9]/g, '_');
+    var el = document.getElementById(sid);
+    if (el) {
+      var val = el.value.trim();
+      if (val) { saved[r.name] = val; r.memory = val; }
+      else { delete saved[r.name]; }
+    }
+  });
+  try { localStorage.setItem('custom_memories', JSON.stringify(saved)); } catch(e) {}
+  var toast = document.getElementById('admin-toast');
+  if (toast) { toast.classList.add('show'); setTimeout(function() { toast.classList.remove('show'); }, 2500); }
+}
+
+function loadCustomMemories() {
+  try {
+    var saved = JSON.parse(localStorage.getItem('custom_memories') || '{}');
+    RIDES.forEach(function(r) { if (saved[r.name]) r.memory = saved[r.name]; });
+  } catch(e) {}
+}
+
 </script>
 
 <!-- ── PREDICTION OVERLAY ── -->
-<div id="prediction-overlay">
+<div id="prediction-overlay" style="display:none">
   <p class="pred-title">🔮 Before she sees this…<br><em>Who would she pick?</em></p>
   <p class="pred-sub">Secretly predict — she won't know you guessed 😏</p>
   <div class="pred-cards">
@@ -1608,7 +1947,7 @@ function filterAdminRides(val) { buildAdminList(val); }
 <div id="pred-result"></div>
 
 <!-- ── REMATCH OVERLAY ── -->
-<div id="rematch-overlay">
+<div id="rematch-overlay" style="display:none">
   <div class="rematch-title">🥊 THE CROWD DEMANDS<br>A REMATCH!</div>
   <div class="rematch-sub" id="rematch-sub"></div>
   <div class="rematch-btns">
@@ -1634,7 +1973,7 @@ function filterAdminRides(val) { buildAdminList(val); }
 </div>
 
 <!-- ── BRACKET MODAL ── -->
-<div id="bracket-modal">
+<div id="bracket-modal" style="display:none">
   <button class="bracket-close" onclick="closeBracket()">✕</button>
   <div class="bracket-modal-inner">
     <h2 class="bracket-modal-title">🌳 <em>Tournament Bracket</em></h2>
@@ -1644,7 +1983,7 @@ function filterAdminRides(val) { buildAdminList(val); }
 </div>
 
 <!-- ── CERTIFICATE MODAL ── -->
-<div id="certificate-modal">
+<div id="certificate-modal" style="display:none">
   <div class="cert-modal-inner">
     <div class="cert-modal-top">✦ Official Championship Certificate ✦</div>
     <div class="cert-modal-stars">★ ★ ★</div>
