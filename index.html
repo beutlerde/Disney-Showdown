@@ -452,6 +452,89 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 
 
 
+
+/* ── MEMORY REVEAL WITH PHOTO ── */
+#memory-overlay.has-photo .memory-reveal-card {
+  padding-top:0;background:transparent;border:none;max-width:100%;width:100%;
+}
+.mem-photo-wrap {
+  position:absolute;inset:0;z-index:0;overflow:hidden;display:none;
+}
+.mem-photo-wrap.visible { display:block; }
+.mem-photo-wrap img {
+  width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .5s;
+}
+.mem-photo-wrap img.loaded { opacity:1; }
+.mem-photo-gradient {
+  position:absolute;inset:0;
+  background:linear-gradient(to bottom,
+    rgba(6,6,15,.1) 0%,
+    rgba(6,6,15,.15) 40%,
+    rgba(6,6,15,.75) 65%,
+    rgba(6,6,15,.95) 85%,
+    rgba(6,6,15,1) 100%);
+}
+/* When has photo — float content to bottom */
+#memory-overlay.has-photo {
+  align-items:flex-end;padding:0;
+}
+#memory-overlay.has-photo .memory-reveal-card {
+  position:relative;z-index:2;
+  padding:20px 24px 40px;text-align:center;width:100%;
+}
+#memory-overlay.has-photo .memory-reveal-emoji { display:none; }
+#memory-overlay.has-photo .memory-reveal-hearts { margin-top:10px; }
+.mem-photo-player-tag {
+  position:absolute;top:max(20px,env(safe-area-inset-top,20px));
+  left:0;right:0;z-index:3;
+  text-align:center;font-size:.65rem;font-weight:700;
+  letter-spacing:.2em;text-transform:uppercase;
+  color:rgba(255,215,0,.7);display:none;
+}
+#memory-overlay.has-photo .mem-photo-player-tag { display:block; }
+
+/* ── ADMIN PHOTO UPLOAD ── */
+.admin-photo-row {
+  display:flex;align-items:center;gap:12px;
+  margin-top:10px;padding-top:10px;
+  border-top:1px solid rgba(255,255,255,.05);
+}
+.admin-photo-thumb {
+  width:56px;height:42px;border-radius:8px;
+  object-fit:cover;flex-shrink:0;
+  border:1.5px solid rgba(255,215,0,.3);
+  display:none;
+}
+.admin-photo-thumb.visible { display:block; }
+.admin-photo-placeholder {
+  width:56px;height:42px;border-radius:8px;
+  background:rgba(255,255,255,.04);border:1.5px dashed rgba(255,255,255,.12);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.2rem;flex-shrink:0;cursor:pointer;transition:all .2s;
+}
+.admin-photo-placeholder:hover {
+  border-color:var(--gold);background:rgba(255,215,0,.06);
+}
+.admin-photo-info { flex:1;min-width:0; }
+.admin-photo-label {
+  font-size:.7rem;font-weight:600;color:var(--muted);
+  display:block;margin-bottom:4px;
+}
+.admin-photo-btns { display:flex;gap:6px;flex-wrap:wrap; }
+.admin-photo-add {
+  background:rgba(255,215,0,.1);border:1px solid rgba(255,215,0,.25);
+  color:var(--gold);padding:4px 10px;border-radius:20px;
+  font-size:.68rem;font-weight:600;cursor:pointer;transition:all .2s;
+}
+.admin-photo-add:hover { background:rgba(255,215,0,.2); }
+.admin-photo-remove {
+  background:rgba(255,107,157,.1);border:1px solid rgba(255,107,157,.2);
+  color:var(--rose);padding:4px 10px;border-radius:20px;
+  font-size:.68rem;font-weight:600;cursor:pointer;transition:all .2s;display:none;
+}
+.admin-photo-remove.visible { display:block; }
+.admin-photo-input { display:none; }
+
 </style>
 </head>
 <body>
@@ -588,6 +671,14 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 
 <!-- MEMORY OVERLAY -->
 <div id="memory-overlay">
+  <!-- Photo layer (shows behind content when personal photo exists) -->
+  <div class="mem-photo-wrap" id="mem-photo-wrap">
+    <img id="mem-photo" alt="">
+    <div class="mem-photo-gradient"></div>
+  </div>
+  <!-- Player tag shown over photo -->
+  <div class="mem-photo-player-tag" id="mem-player-tag"></div>
+  <!-- Content -->
   <div class="memory-reveal-card">
     <span class="memory-reveal-emoji" id="mem-em"></span>
     <div class="memory-reveal-name" id="mem-name"></div>
@@ -1269,7 +1360,10 @@ async function loadMatch() {
 function setCard(side, ride) {
   document.getElementById(`wrap-${side}`).style.background = `linear-gradient(135deg,${ride.color}ee,${ride.color}77)`;
   document.getElementById(`em-${side}`).textContent = ride.emoji;
-  loadImg(document.getElementById(`img-${side}`), ride.imgs);
+  // Personal photo takes priority over stock photos
+  var _pPhoto = currentPlayer ? getRidePhoto(ride.name, currentPlayer.id) : null;
+  var _imgUrls = _pPhoto ? [_pPhoto].concat(ride.imgs) : ride.imgs;
+  loadImg(document.getElementById(`img-${side}`), _imgUrls);
   document.getElementById(`name-${side}`).textContent = ride.name;
   document.getElementById(`badge-${side}`).innerHTML = `<span class="card-badge ${ride.park}">${ride.parkLabel}</span>`;
   document.getElementById(`desc-${side}`).textContent = ride.desc;
@@ -1339,7 +1433,7 @@ function pickWinner(side) {
   var proceed = function() {
     if (hasMemory) {
       playFlip();
-      showMemoryReveal(winner, function() { setTimeout(loadMatch, 200); });
+      showMemoryRevealWithPhoto(winner, function() { setTimeout(loadMatch, 200); });
     } else {
       playWin();
       setTimeout(loadMatch, 900);
@@ -2286,6 +2380,7 @@ function buildAdminList(filter) {
           + '<span class="admin-park-badge" style="' + pStyle + '">' + r.parkLabel + '</span>'
           + '</div>'
           + '<textarea class="admin-textarea" id="' + sid + '" placeholder="Add a memory for this ride...">' + current + '</textarea>'
+          + buildAdminPhotoRow(r, adminEditingPlayer)
           + '</div>';
   });
   list.innerHTML = html;
@@ -2545,6 +2640,159 @@ function skipCeremony() {
   var el = document.getElementById('round-ceremony');
   if (el) el.classList.remove('visible');
   if (ceremonyCallback) { ceremonyCallback(); ceremonyCallback = null; }
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// 📸 PERSONAL PHOTO SYSTEM
+// ═══════════════════════════════════════════════════════════
+function getRidePhotos(playerId) {
+  try { return JSON.parse(localStorage.getItem('photos_' + playerId) || '{}'); }
+  catch(e) { return {}; }
+}
+function getRidePhoto(rideName, playerId) {
+  if (!playerId) return null;
+  return getRidePhotos(playerId)[rideName] || null;
+}
+function saveRidePhoto(rideName, playerId, dataUrl) {
+  var photos = getRidePhotos(playerId);
+  photos[rideName] = dataUrl;
+  try { localStorage.setItem('photos_' + playerId, JSON.stringify(photos)); return true; }
+  catch(e) {
+    // Storage full — try to save anyway after warning
+    console.warn('Photo storage full:', e);
+    return false;
+  }
+}
+function deleteRidePhoto(rideName, playerId) {
+  var photos = getRidePhotos(playerId);
+  delete photos[rideName];
+  try { localStorage.setItem('photos_' + playerId, JSON.stringify(photos)); } catch(e){}
+}
+
+// Compress photo before saving (targets ~400px wide, ~30KB)
+function compressAndSavePhoto(file, rideName, playerId, onDone) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      var canvas = document.createElement('canvas');
+      var maxW = 800, maxH = 600;
+      var scale = Math.min(maxW / img.width, maxH / img.height, 1);
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+      var ok = saveRidePhoto(rideName, playerId, dataUrl);
+      if (onDone) onDone(ok, dataUrl);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ─── Admin photo row builder ──────────────────────────────
+function buildAdminPhotoRow(ride, playerId) {
+  var existing = getRidePhoto(ride.name, playerId);
+  var sid = 'photo_' + ride.name.replace(/[^a-zA-Z0-9]/g, '_');
+  var hasPic = !!existing;
+  return '<div class="admin-photo-row" id="prow_' + sid + '">'
+    + (hasPic
+        ? '<img class="admin-photo-thumb visible" id="pthumb_' + sid + '" src="' + existing + '" alt="">'
+        : '<div class="admin-photo-placeholder" onclick="document.getElementById(\'pinput_' + sid + '\').click()">📸</div>'
+      )
+    + '<div class="admin-photo-info">'
+    + '<span class="admin-photo-label">Personal photo for memory reveal</span>'
+    + '<div class="admin-photo-btns">'
+    + '<button class="admin-photo-add" onclick="document.getElementById(\'pinput_' + sid + '\').click()">'
+    + (hasPic ? '🔄 Replace' : '📸 Add Photo') + '</button>'
+    + '<button class="admin-photo-remove' + (hasPic ? ' visible' : '') + '" '
+    + 'id="pdel_' + sid + '" onclick="adminDeletePhoto(\'' + ride.name.replace(/'/g, "\\'") + '\')">'
+    + '✕ Remove</button>'
+    + '</div></div>'
+    + '<input type="file" accept="image/*" class="admin-photo-input" id="pinput_' + sid + '" '
+    + 'onchange="adminUploadPhoto(this, \'' + ride.name.replace(/'/g, "\\'") + '\')">'
+    + '</div>';
+}
+
+function adminUploadPhoto(input, rideName) {
+  if (!input.files || !input.files[0]) return;
+  var file = input.files[0];
+  var playerId = adminEditingPlayer;
+  compressAndSavePhoto(file, rideName, playerId, function(ok, dataUrl) {
+    if (!ok) { alert('Storage full! Try removing some photos first.'); return; }
+    // Refresh just this ride's photo row
+    buildAdminList(document.getElementById('admin-search').value || '');
+    var toast = document.getElementById('admin-toast');
+    if (toast) {
+      toast.innerHTML = '📸 Photo saved!';
+      toast.classList.add('show');
+      setTimeout(function() { toast.classList.remove('show'); }, 2000);
+    }
+  });
+}
+
+function adminDeletePhoto(rideName) {
+  deleteRidePhoto(rideName, adminEditingPlayer);
+  buildAdminList(document.getElementById('admin-search').value || '');
+}
+
+// ─── Update showMemoryReveal to show personal photo ──────
+function showMemoryRevealWithPhoto(ride, onDone) {
+  var overlay    = document.getElementById('memory-overlay');
+  var photoWrap  = document.getElementById('mem-photo-wrap');
+  var photoImg   = document.getElementById('mem-photo');
+  var playerTag  = document.getElementById('mem-player-tag');
+
+  if (!overlay) { if (onDone) setTimeout(onDone, 200); return; }
+
+  // Check for personal photo
+  var personalPhoto = currentPlayer ? getRidePhoto(ride.name, currentPlayer.id) : null;
+
+  if (personalPhoto && photoWrap && photoImg) {
+    // Has photo — cinematic mode
+    overlay.classList.add('has-photo');
+    photoWrap.classList.add('visible');
+    photoImg.classList.remove('loaded');
+    photoImg.onload = function() { photoImg.classList.add('loaded'); };
+    photoImg.src = personalPhoto;
+
+    // Player tag
+    if (playerTag && currentPlayer) {
+      playerTag.textContent = currentPlayer.emoji + '  ' + currentPlayer.name + "'s Memory";
+    }
+  } else {
+    // No photo — original emoji mode
+    overlay.classList.remove('has-photo');
+    if (photoWrap) photoWrap.classList.remove('visible');
+    if (photoImg)  photoImg.src = '';
+  }
+
+  // Memory text (per-player)
+  var memText = currentPlayer ? getRideMemory(ride, currentPlayer.id) : ride.memory;
+  document.getElementById('mem-em').textContent   = ride.emoji;
+  document.getElementById('mem-name').textContent = ride.name;
+  document.getElementById('mem-text').textContent = '"' + (memText || '') + '"';
+
+  var badge = document.getElementById('mem-badge');
+  badge.className = 'memory-reveal-badge ' + (ride.park === 'dl' ? 'dl' : 'dca');
+  badge.style.cssText = ride.park === 'dl'
+    ? 'background:rgba(110,198,255,.2);color:#6EC6FF;border:1px solid rgba(110,198,255,.3);'
+    : 'background:rgba(255,107,157,.2);color:#FF6B9D;border:1px solid rgba(255,107,157,.3);';
+  badge.textContent = ride.parkLabel;
+
+  overlay.style.display = 'flex';
+  overlay.classList.add('visible');
+
+  setTimeout(function() {
+    overlay.classList.remove('visible');
+    overlay.classList.remove('has-photo');
+    if (photoWrap) photoWrap.classList.remove('visible');
+    setTimeout(function() {
+      overlay.style.display = 'none';
+      if (onDone) onDone();
+    }, 400);
+  }, 3500);
 }
 
 </script>
