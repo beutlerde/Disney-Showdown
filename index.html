@@ -1360,10 +1360,8 @@ async function loadMatch() {
 function setCard(side, ride) {
   document.getElementById(`wrap-${side}`).style.background = `linear-gradient(135deg,${ride.color}ee,${ride.color}77)`;
   document.getElementById(`em-${side}`).textContent = ride.emoji;
-  // Personal photo takes priority over stock photos
-  var _pPhoto = currentPlayer ? getRidePhoto(ride.name, currentPlayer.id) : null;
-  var _imgUrls = _pPhoto ? [_pPhoto].concat(ride.imgs) : ride.imgs;
-  loadImg(document.getElementById(`img-${side}`), _imgUrls);
+  // Battle card always shows stock Disney photo
+  loadImg(document.getElementById(`img-${side}`), ride.imgs);
   document.getElementById(`name-${side}`).textContent = ride.name;
   document.getElementById(`badge-${side}`).innerHTML = `<span class="card-badge ${ride.park}">${ride.parkLabel}</span>`;
   document.getElementById(`desc-${side}`).textContent = ride.desc;
