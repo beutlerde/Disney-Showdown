@@ -187,11 +187,11 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 /* MEMORY REVEAL OVERLAY */
 #memory-overlay{position:fixed;inset:0;z-index:200;background:rgba(6,6,15,.95);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(20px);opacity:0;pointer-events:none;transition:opacity .4s;}
 #memory-overlay.visible{opacity:1;pointer-events:all;}
-.memory-reveal-card{max-width:500px;width:100%;text-align:center;animation:slideUp .5s ease;}
+.memory-reveal-card{max-width:500px;width:100%;text-align:center;animation:slideUp .5s ease;padding:24px 20px;}
 .memory-reveal-emoji{font-size:3.5rem;display:block;margin-bottom:12px;filter:drop-shadow(0 0 30px rgba(255,215,0,.6));}
-.memory-reveal-name{font-family:'Fredoka One',cursive;font-size:clamp(1.4rem,4vw,2rem);background:linear-gradient(135deg,var(--gold),var(--gold2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:20px;}
+.memory-reveal-name{font-family:'Fredoka One',cursive;font-size:clamp(1.5rem,5vw,2.2rem);background:linear-gradient(135deg,var(--gold),var(--gold2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:20px;}
 .memory-reveal-badge{font-size:.65rem;padding:4px 12px;border-radius:20px;display:inline-block;margin-bottom:24px;font-weight:700;letter-spacing:.08em;}
-.memory-reveal-text{font-family:'Playfair Display',serif;font-style:italic;font-size:clamp(1.1rem,3vw,1.5rem);line-height:1.65;color:rgba(244,241,234,.95);padding:0 16px;}
+.memory-reveal-text{font-family:'Playfair Display',serif;font-style:italic;font-size:clamp(1rem,2.8vw,1.35rem);line-height:1.65;color:rgba(244,241,234,.95);padding:0 16px;}
 .memory-reveal-hearts{font-size:1.2rem;margin-top:20px;letter-spacing:.3em;animation:heartbeat 1.5s infinite;}
 
 /* CHAMPION */
@@ -453,43 +453,48 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 
 
 
-/* ── MEMORY REVEAL WITH PHOTO ── */
-#memory-overlay.has-photo .memory-reveal-card {
-  padding-top:0;background:transparent;border:none;max-width:100%;width:100%;
+/* ── MEMORY REVEAL WITH PHOTO — two-zone layout ── */
+#memory-overlay.has-photo {
+  flex-direction:column;align-items:stretch;
+  justify-content:flex-start;padding:0;
 }
+/* Zone 1: photo frame - shows full photo, letterboxed */
 .mem-photo-wrap {
-  position:absolute;inset:0;z-index:0;overflow:hidden;display:none;
+  display:none;flex-shrink:0;
+  background:#000;overflow:hidden;
+  position:relative;
 }
-.mem-photo-wrap.visible { display:block; }
+.mem-photo-wrap.visible { display:flex;align-items:center;justify-content:center; }
+#memory-overlay.has-photo .mem-photo-wrap {
+  height:54vh;max-height:420px;
+}
 .mem-photo-wrap img {
-  width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .5s;
+  width:100%;height:100%;
+  object-fit:contain; /* show FULL photo, no cropping */
+  opacity:0;transition:opacity .5s;
 }
 .mem-photo-wrap img.loaded { opacity:1; }
 .mem-photo-gradient {
-  position:absolute;inset:0;
-  background:linear-gradient(to bottom,
-    rgba(6,6,15,.1) 0%,
-    rgba(6,6,15,.15) 40%,
-    rgba(6,6,15,.75) 65%,
-    rgba(6,6,15,.95) 85%,
-    rgba(6,6,15,1) 100%);
+  position:absolute;bottom:0;left:0;right:0;height:80px;
+  background:linear-gradient(to bottom,transparent,rgba(6,6,15,.9));
+  pointer-events:none;
 }
-/* When has photo — float content to bottom */
-#memory-overlay.has-photo {
-  align-items:flex-end;padding:0;
-}
+/* Zone 2: text section */
 #memory-overlay.has-photo .memory-reveal-card {
-  position:relative;z-index:2;
-  padding:20px 24px 40px;text-align:center;width:100%;
+  flex:1;background:var(--ink);
+  padding:18px 24px 32px;text-align:center;
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:center;border-radius:0;border:none;
+  max-width:100%;width:100%;margin:0;
 }
 #memory-overlay.has-photo .memory-reveal-emoji { display:none; }
-#memory-overlay.has-photo .memory-reveal-hearts { margin-top:10px; }
+#memory-overlay.has-photo .memory-reveal-hearts { margin-top:8px; }
 .mem-photo-player-tag {
-  position:absolute;top:max(20px,env(safe-area-inset-top,20px));
+  position:absolute;top:max(14px,env(safe-area-inset-top,14px));
   left:0;right:0;z-index:3;
-  text-align:center;font-size:.65rem;font-weight:700;
-  letter-spacing:.2em;text-transform:uppercase;
-  color:rgba(255,215,0,.7);display:none;
+  text-align:center;font-size:.6rem;font-weight:700;
+  letter-spacing:.22em;text-transform:uppercase;
+  color:rgba(255,215,0,.75);display:none;
 }
 #memory-overlay.has-photo .mem-photo-player-tag { display:block; }
 
